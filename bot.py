@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 
 # ---------- НАСТРОЙКИ ----------
-TOKEN = os.getenv("TOKEN")  # токен берётся из Railway
+TOKEN = os.getenv("TOKEN")
 MAIN_ADMIN = 1072968512076787744
 event_admins = {MAIN_ADMIN}
 
@@ -65,10 +65,13 @@ def build_event_embed(event_id, data):
         inline=False
     )
 
+    # Список участников с временем записи
     if data["participants"]:
         lines = []
-        for i, uid in enumerate(data["participants"], start=1):
-            lines.append(f"{i}. <@{uid}>")
+        for i, entry in enumerate(data["participants"], start=1):
+            uid = entry["id"]
+            t = entry["time"]
+            lines.append(f"{i}. <@{uid}> — {t}")
         embed.add_field(name="Список участников", value="\n".join(lines), inline=False)
     else:
         embed.add_field(name="Список участников", value="Пока никого нет", inline=False)
@@ -87,7 +90,6 @@ class EventView(discord.ui.View):
         super().__init__(timeout=None)
         self.event_id = event_id
 
-        # Кнопки записи всегда видимы
         self.add_item(SignUpButton(event_id))
         self.add_item(LeaveButton(event_id))
 
@@ -120,10 +122,17 @@ class SignUpButton(discord.ui.Button):
         if len(data["participants"]) >= data["limit"]:
             return await interaction.response.send_message("Лимит участников достигнут!", ephemeral=True)
 
-        if interaction.user.id in data["participants"]:
-            return await interaction.response.send_message("Ты уже записан!", ephemeral=True)
+        # Проверка на повторную запись
+        for entry in data["participants"]:
+            if entry["id"] == interaction.user.id:
+                return await interaction.response.send_message("Ты уже записан!", ephemeral=True)
 
-        data["participants"].append(interaction.user.id)
+        # Добавляем участника с временем
+        data["participants"].append({
+            "id": interaction.user.id,
+            "time": datetime.now().strftime("%H:%M:%S")
+        })
+
         save_events(events)
 
         embed = build_event_embed(self.event_id, data)
@@ -139,7 +148,7 @@ class LeaveButton(discord.ui.Button):
     async def callback(self, interaction):
         data = events[self.event_id]
 
-        # Отписка тоже запрещена, если закрыто
+        # Отписка запрещена, если закрыто
         if data.get("force_closed", False):
             return await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
 
@@ -148,10 +157,13 @@ class LeaveButton(discord.ui.Button):
         if now >= close_dt:
             return await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
 
-        if interaction.user.id not in data["participants"]:
+        # Удаляем участника
+        before = len(data["participants"])
+        data["participants"] = [p for p in data["participants"] if p["id"] != interaction.user.id]
+
+        if len(data["participants"]) == before:
             return await interaction.response.send_message("Ты не записан!", ephemeral=True)
 
-        data["participants"].remove(interaction.user.id)
         save_events(events)
 
         embed = build_event_embed(self.event_id, data)
