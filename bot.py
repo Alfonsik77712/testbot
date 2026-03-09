@@ -1,12 +1,12 @@
 import discord
 from discord import app_commands
-from discord.ext import commands, tasks
+from discord.ext import commands
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ---------- НАСТРОЙКИ ----------
-TOKEN = os.getenv("TOKEN")  # <-- ВАЖНО: токен берётся из Railway переменной
+TOKEN = os.getenv("TOKEN")  # токен берётся из Railway
 MAIN_ADMIN = 1072968512076787744
 event_admins = {MAIN_ADMIN}
 
@@ -20,55 +20,84 @@ def load_events():
     with open(EVENTS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
 def save_events(events):
     with open(EVENTS_FILE, "w", encoding="utf-8") as f:
         json.dump(events, f, indent=4, ensure_ascii=False)
 
+
 events = load_events()
+
 
 # ---------- EMBED ----------
 def build_event_embed(event_id, data):
+    now = datetime.now()
+    close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
+
+    is_closed = (
+        data.get("force_closed", False)
+        or now >= close_dt
+        or len(data["participants"]) >= data["limit"]
+    )
+
+    status_text = "ЗАКРЫТО" if is_closed else "ОТКРЫТО"
+
     embed = discord.Embed(
         title=data["title"],
-        description=data["description"],
-        color=0x2ecc71
+        description="",
+        color=0xff4444 if is_closed else 0x44ff44
     )
-    embed.add_field(name="Дата", value=data["date"], inline=True)
-    embed.add_field(name="Время", value=data["time"], inline=True)
-    embed.add_field(name="Лимит", value=str(data["limit"]), inline=True)
 
-    participants = data.get("participants", [])
-    if participants:
-        embed.add_field(
-            name=f"Участники ({len(participants)}/{data['limit']})",
-            value="\n".join(f"<@{p}>" for p in participants),
-            inline=False
-        )
+    embed.add_field(name="Статус", value=f"**{status_text}**", inline=False)
+
+    embed.add_field(
+        name="Дата и время",
+        value=f"📅 **{data['date']}**   ⏰ **{data['time']}**",
+        inline=False
+    )
+
+    if data["description"]:
+        embed.add_field(name="Описание", value=data["description"], inline=False)
+
+    embed.add_field(
+        name="Участники",
+        value=f"**{len(data['participants'])} / {data['limit']}**",
+        inline=False
+    )
+
+    if data["participants"]:
+        lines = []
+        for i, uid in enumerate(data["participants"], start=1):
+            lines.append(f"{i}. <@{uid}>")
+        embed.add_field(name="Список участников", value="\n".join(lines), inline=False)
     else:
-        embed.add_field(name="Участники", value="Пока никого нет", inline=False)
+        embed.add_field(name="Список участников", value="Пока никого нет", inline=False)
 
     if data.get("image"):
         embed.set_image(url=data["image"])
 
-    embed.set_footer(text=f"ID мероприятия: {event_id}")
+    embed.set_footer(text=f"ID: {event_id}")
+
     return embed
+
 
 # ---------- VIEW ----------
 class EventView(discord.ui.View):
-    def __init__(self, event_id, user_is_admin):
+    def __init__(self, event_id, is_admin):
         super().__init__(timeout=None)
         self.event_id = event_id
 
-        # Строка 1 — всем
+        # Кнопки записи всегда видимы
         self.add_item(SignUpButton(event_id))
         self.add_item(LeaveButton(event_id))
 
-        # Строка 2 — только админам
-        if user_is_admin:
+        if is_admin:
             self.add_item(EditButton(event_id))
             self.add_item(DeleteButton(event_id))
             self.add_item(AddImageButton(event_id))
             self.add_item(ClearParticipantsButton(event_id))
+            self.add_item(ForceCloseButton(event_id))
+
 
 # ---------- КНОПКИ ----------
 class SignUpButton(discord.ui.Button):
@@ -78,16 +107,23 @@ class SignUpButton(discord.ui.Button):
 
     async def callback(self, interaction):
         data = events[self.event_id]
-        participants = data.get("participants", [])
 
-        if interaction.user.id in participants:
-            return await interaction.response.send_message("Ты уже записан!", ephemeral=True)
+        # Запрещаем запись, если закрыто
+        if data.get("force_closed", False):
+            return await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
 
-        if len(participants) >= data["limit"]:
+        now = datetime.now()
+        close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
+        if now >= close_dt:
+            return await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
+
+        if len(data["participants"]) >= data["limit"]:
             return await interaction.response.send_message("Лимит участников достигнут!", ephemeral=True)
 
-        participants.append(interaction.user.id)
-        data["participants"] = participants
+        if interaction.user.id in data["participants"]:
+            return await interaction.response.send_message("Ты уже записан!", ephemeral=True)
+
+        data["participants"].append(interaction.user.id)
         save_events(events)
 
         embed = build_event_embed(self.event_id, data)
@@ -102,13 +138,20 @@ class LeaveButton(discord.ui.Button):
 
     async def callback(self, interaction):
         data = events[self.event_id]
-        participants = data.get("participants", [])
 
-        if interaction.user.id not in participants:
+        # Отписка тоже запрещена, если закрыто
+        if data.get("force_closed", False):
+            return await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
+
+        now = datetime.now()
+        close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
+        if now >= close_dt:
+            return await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
+
+        if interaction.user.id not in data["participants"]:
             return await interaction.response.send_message("Ты не записан!", ephemeral=True)
 
-        participants.remove(interaction.user.id)
-        data["participants"] = participants
+        data["participants"].remove(interaction.user.id)
         save_events(events)
 
         embed = build_event_embed(self.event_id, data)
@@ -125,8 +168,7 @@ class EditButton(discord.ui.Button):
         if interaction.user.id not in event_admins:
             return await interaction.response.send_message("Нет прав.", ephemeral=True)
 
-        data = events[self.event_id]
-        modal = EditEventModal(self.event_id, data)
+        modal = EditEventModal(self.event_id, events[self.event_id])
         await interaction.response.send_modal(modal)
 
 
@@ -193,6 +235,24 @@ class ClearParticipantsButton(discord.ui.Button):
         await interaction.message.edit(embed=embed, view=EventView(self.event_id, True))
         await interaction.response.send_message("Участники очищены.", ephemeral=True)
 
+
+class ForceCloseButton(discord.ui.Button):
+    def __init__(self, event_id):
+        super().__init__(label="Закрыть", style=discord.ButtonStyle.danger)
+        self.event_id = event_id
+
+    async def callback(self, interaction):
+        if interaction.user.id not in event_admins:
+            return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+        events[self.event_id]["force_closed"] = True
+        save_events(events)
+
+        embed = build_event_embed(self.event_id, events[self.event_id])
+        await interaction.message.edit(embed=embed, view=EventView(self.event_id, True))
+        await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
+
+
 # ---------- MODAL ----------
 class EditEventModal(discord.ui.Modal, title="Изменить мероприятие"):
     def __init__(self, event_id, data):
@@ -213,11 +273,13 @@ class EditEventModal(discord.ui.Modal, title="Изменить мероприя�
 
     async def on_submit(self, interaction):
         data = events[self.event_id]
+
         data["title"] = self.title_input.value
         data["date"] = self.date_input.value
         data["time"] = self.time_input.value
         data["description"] = self.desc_input.value
         data["limit"] = int(self.limit_input.value)
+        data["close_datetime"] = f"{data['date']} {data['time']}"
 
         save_events(events)
 
@@ -225,29 +287,12 @@ class EditEventModal(discord.ui.Modal, title="Изменить мероприя�
         await interaction.message.edit(embed=embed, view=EventView(self.event_id, interaction.user.id in event_admins))
         await interaction.response.send_message("Мероприятие обновлено!", ephemeral=True)
 
-# ---------- БОТ ----------
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
 
-@bot.event
-async def on_ready():
-    await bot.tree.sync()
-    print("Бот запущен!")
-
-# ---------- КОМАНДЫ ----------
-@bot.tree.command(name="event_create", description="Создать мероприятие")
-async def event_create(interaction: discord.Interaction):
-    if interaction.user.id not in event_admins:
-        return await interaction.response.send_message("Нет прав.", ephemeral=True)
-
-    modal = CreateEventModal()
-    await interaction.response.send_modal(modal)
-
-
+# ---------- СОЗДАНИЕ ----------
 class CreateEventModal(discord.ui.Modal, title="Создать мероприятие"):
     title_input = discord.ui.TextInput(label="Название")
-    date_input = discord.ui.TextInput(label="Дата")
-    time_input = discord.ui.TextInput(label="Время")
+    date_input = discord.ui.TextInput(label="Дата (формат: 2026-03-10)")
+    time_input = discord.ui.TextInput(label="Время (формат: 21:40)")
     desc_input = discord.ui.TextInput(label="Описание", style=discord.TextStyle.paragraph)
     limit_input = discord.ui.TextInput(label="Лимит")
 
@@ -261,7 +306,9 @@ class CreateEventModal(discord.ui.Modal, title="Создать мероприя�
             "description": self.desc_input.value,
             "limit": int(self.limit_input.value),
             "participants": [],
-            "image": None
+            "image": None,
+            "force_closed": False,
+            "close_datetime": f"{self.date_input.value} {self.time_input.value}"
         }
 
         save_events(events)
@@ -272,8 +319,28 @@ class CreateEventModal(discord.ui.Modal, title="Создать мероприя�
             view=EventView(event_id, interaction.user.id in event_admins)
         )
 
+
+# ---------- БОТ ----------
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print("Бот запущен!")
+
+
+@bot.tree.command(name="event_create", description="Создать мероприятие")
+async def event_create(interaction: discord.Interaction):
+    if interaction.user.id not in event_admins:
+        return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+    await interaction.response.send_modal(CreateEventModal())
+
+
 @bot.tree.command(name="addadmin", description="Добавить администратора")
-@app_commands.describe(user="Пользователь, которого нужно сделать админом")
+@app_commands.describe(user="Пользователь")
 async def addadmin(interaction: discord.Interaction, user: discord.User):
     if interaction.user.id != MAIN_ADMIN:
         return await interaction.response.send_message("Только главный админ может добавлять админов.", ephemeral=True)
@@ -281,5 +348,5 @@ async def addadmin(interaction: discord.Interaction, user: discord.User):
     event_admins.add(user.id)
     await interaction.response.send_message(f"{user.mention} теперь админ!", ephemeral=True)
 
-# ---------- ЗАПУСК ----------
+
 bot.run(TOKEN)
