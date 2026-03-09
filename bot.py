@@ -6,11 +6,12 @@ import os
 from datetime import datetime, timedelta
 
 # ---------- НАСТРОЙКИ ----------
-TOKEN = "YOUR_TOKEN_HERE"
+TOKEN = os.getenv("TOKEN")  # <-- ВАЖНО: токен берётся из Railway переменной
 MAIN_ADMIN = 1072968512076787744
 event_admins = {MAIN_ADMIN}
 
 EVENTS_FILE = "events.json"
+
 
 # ---------- ЗАГРУЗКА / СОХРАНЕНИЕ ----------
 def load_events():
