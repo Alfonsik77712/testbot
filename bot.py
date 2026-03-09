@@ -360,5 +360,28 @@ async def addadmin(interaction: discord.Interaction, user: discord.User):
     event_admins.add(user.id)
     await interaction.response.send_message(f"{user.mention} теперь админ!", ephemeral=True)
 
+@bot.tree.command(name="flood", description="Отправить 10 одинаковых сообщений")
+@app_commands.describe(text="Текст, который нужно отправить 10 раз")
+async def flood(interaction: discord.Interaction, text: str):
+    # Только админы
+    if interaction.user.id not in event_admins:
+        return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+    await interaction.response.send_message("Флуд запущен!", ephemeral=True)
+
+    for _ in range(10):
+        await interaction.channel.send(text)
+
+@bot.tree.command(name="spam", description="Отправить 10 сообщений с упоминанием пользователя")
+@app_commands.describe(user="Кого спамить", text="Текст сообщения")
+async def spam(interaction: discord.Interaction, user: discord.User, text: str):
+    # Только админы
+    if interaction.user.id not in event_admins:
+        return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+    await interaction.response.send_message("Спам запущен!", ephemeral=True)
+
+    for _ in range(10):
+        await interaction.channel.send(f"{user.mention} {text}")
 
 bot.run(TOKEN)
