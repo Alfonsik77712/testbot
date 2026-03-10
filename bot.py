@@ -6,9 +6,9 @@ import os
 import asyncio
 from datetime import datetime
 
+# ---------- ИНИЦИАЛИЗАЦИЯ БОТА (ОБЯЗАТЕЛЬНО ВВЕРХУ!) ----------
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
-
 
 # ---------- НАСТРОЙКИ ----------
 TOKEN = os.getenv("TOKEN")  # или впиши строкой
@@ -16,8 +16,7 @@ MAIN_ADMIN = 1072968512076787744
 event_admins = {MAIN_ADMIN}
 
 EVENTS_FILE = "events.json"
-
-VOICE_CHANNEL_ID = 1377624144807727105  # ID голосового канала
+VOICE_CHANNEL_ID = 1472257169029202134
 
 
 # ---------- ЗАГРУЗКА / СОХРАНЕНИЕ ----------
@@ -525,14 +524,11 @@ async def removeadmin(interaction: discord.Interaction, user: discord.User):
         await interaction.response.send_message("Этот пользователь не админ.", ephemeral=True)
 
 
-# ---------- ЗАПУСК ----------
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-
+# ---------- ON_READY ----------
 @bot.event
 async def on_ready():
     print(f"Бот запущен как {bot.user}")
+
     try:
         await bot.tree.sync()
         print("Слэш-команды синхронизированы.")
@@ -542,4 +538,5 @@ async def on_ready():
     asyncio.create_task(auto_close_events())
 
 
+# ---------- ЗАПУСК ----------
 bot.run(TOKEN)
