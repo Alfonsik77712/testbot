@@ -7,14 +7,13 @@ import asyncio
 from datetime import datetime
 
 # ---------- НАСТРОЙКИ ----------
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN")  # или впиши строкой: "ТОКЕН_СЮДА"
 MAIN_ADMIN = 1072968512076787744
 event_admins = {MAIN_ADMIN}
 
 EVENTS_FILE = "events.json"
 
-# ID голосового канала, который нужно блокировать
-VOICE_CHANNEL_ID = 1472257169029202134
+VOICE_CHANNEL_ID = 1377624144807727105  # ID голосового канала
 
 
 # ---------- ЗАГРУЗКА / СОХРАНЕНИЕ ----------
@@ -34,36 +33,40 @@ events = load_events()
 
 
 # ---------- БЛОКИРОВКА ГОЛОСОВОГО КАНАЛА ----------
-async def lock_voice_channel(guild, event_data, interaction):
+async def lock_voice_channel(guild, event_data, interaction_or_msg):
     channel = guild.get_channel(VOICE_CHANNEL_ID)
     if not channel:
         return
 
+    # Запрещаем всем
     await channel.set_permissions(guild.default_role, connect=False)
 
+    # Участникам разрешаем
     for entry in event_data["participants"]:
         member = guild.get_member(entry["id"])
         if member:
             await channel.set_permissions(member, connect=True)
 
-    await interaction.channel.send(
+    await interaction_or_msg.channel.send(
         f"🔒 Голосовой канал <#{VOICE_CHANNEL_ID}> закрыт для неучастников на **15 минут**."
     )
 
 
-async def unlock_voice_channel(guild, event_data, interaction):
+async def unlock_voice_channel(guild, event_data, interaction_or_msg):
     channel = guild.get_channel(VOICE_CHANNEL_ID)
     if not channel:
         return
 
+    # Возвращаем всем доступ
     await channel.set_permissions(guild.default_role, connect=True)
 
+    # С участников убираем индивидуальные права
     for entry in event_data["participants"]:
         member = guild.get_member(entry["id"])
         if member:
             await channel.set_permissions(member, overwrite=None)
 
-    await interaction.channel.send(
+    await interaction_or_msg.channel.send(
         f"🔓 Ограничение снято. Голосовой канал <#{VOICE_CHANNEL_ID}> снова доступен всем."
     )
 
@@ -303,6 +306,7 @@ class ForceCloseButton(discord.ui.Button):
         embed = build_event_embed(self.event_id, events[self.event_id])
         await interaction.message.edit(embed=embed, view=EventView(self.event_id, True))
 
+        # БЕЗ @everyone — только закрытие и блокировка
         await lock_voice_channel(interaction.guild, events[self.event_id], interaction)
 
         async def timer():
@@ -369,7 +373,6 @@ class EditEventModal(discord.ui.Modal, title="Изменить мероприя�
         await interaction.response.send_message("Мероприятие обновлено!", ephemeral=True)
 
 
-# ---------- СОЗДАНИЕ ----------
 class CreateEventModal(discord.ui.Modal, title="Создать мероприятие"):
     title_input = discord.ui.TextInput(label="Название")
     date_input = discord.ui.TextInput(label="Дата (формат: 2026-03-10)")
@@ -395,10 +398,58 @@ class CreateEventModal(discord.ui.Modal, title="Создать мероприя�
         save_events(events)
 
         embed = build_event_embed(event_id, events[event_id])
+
         await interaction.response.send_message(
             embed=embed,
             view=EventView(event_id, interaction.user.id in event_admins)
         )
+
+        sent_message = await interaction.original_response()
+
+        events[event_id]["message_channel"] = interaction.channel.id
+        events[event_id]["message_id"] = sent_message.id
+        save_events(events)
+
+
+# ---------- АВТО-ЗАКРЫТИЕ ----------
+async def auto_close_events():
+    await bot.wait_until_ready()
+
+    while not bot.is_closed():
+        now = datetime.now()
+
+        for event_id, data in list(events.items()):
+            close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
+
+            if data.get("force_closed", False):
+                continue
+
+            if now >= close_dt:
+                data["force_closed"] = True
+                save_events(events)
+
+                channel = bot.get_channel(data["message_channel"])
+                if channel:
+                    try:
+                        msg = await channel.fetch_message(data["message_id"])
+                        embed = build_event_embed(event_id, data)
+                        await msg.edit(embed=embed, view=EventView(event_id, True))
+
+                        # 🔥 ТУТ СПАМ @everyone ТОЛЬКО ПРИ АВТО-ЗАКРЫТИИ
+                        await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
+
+                        await lock_voice_channel(channel.guild, data, msg)
+
+                        async def timer():
+                            await asyncio.sleep(15 * 60)
+                            await unlock_voice_channel(channel.guild, data, msg)
+
+                        asyncio.create_task(timer())
+
+                    except:
+                        pass
+
+        await asyncio.sleep(30)
 
 
 # ---------- БОТ ----------
@@ -408,6 +459,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
+    bot.loop.create_task(auto_close_events())
     await bot.tree.sync()
     print("Бот запущен!")
 
