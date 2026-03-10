@@ -372,16 +372,29 @@ async def flood(interaction: discord.Interaction, text: str):
     for _ in range(10):
         await interaction.channel.send(text)
 
-@bot.tree.command(name="spam", description="Отправить 10 сообщений с упоминанием пользователя")
+@bot.tree.command(name="spam", description="Отправить 10 сообщений пользователю в личку")
 @app_commands.describe(user="Кого спамить", text="Текст сообщения")
 async def spam(interaction: discord.Interaction, user: discord.User, text: str):
     # Только админы
     if interaction.user.id not in event_admins:
         return await interaction.response.send_message("Нет прав.", ephemeral=True)
 
-    await interaction.response.send_message("Спам запущен!", ephemeral=True)
+    # Пытаемся открыть ЛС
+    try:
+        await user.send("Спам запущен!")
+    except:
+        return await interaction.response.send_message(
+            "Не могу написать пользователю в ЛС. Возможно, у него закрыты сообщения.",
+            ephemeral=True
+        )
 
+    await interaction.response.send_message("Спам в ЛС запущен!", ephemeral=True)
+
+    # Отправляем 10 сообщений в ЛС
     for _ in range(10):
-        await interaction.channel.send(f"{user.mention} {text}")
+        try:
+            await user.send(text)
+        except:
+            break
 
 bot.run(TOKEN)
