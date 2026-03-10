@@ -16,7 +16,7 @@ MAIN_ADMIN = 1072968512076787744
 event_admins = {MAIN_ADMIN}
 
 EVENTS_FILE = "events.json"
-VOICE_CHANNEL_ID = 1472257169029202134
+VOICE_CHANNEL_ID = 1377624144807727105
 
 
 # ---------- ЗАГРУЗКА / СОХРАНЕНИЕ ----------
@@ -133,13 +133,13 @@ class EventView(discord.ui.View):
             or len(data["participants"]) >= data["limit"]
         )
 
-        participant_ids = [p["id"] for p in data["participants"]]
         is_admin = viewer_id in event_admins
 
         # --- Кнопки участников ---
-        if viewer_id not in participant_ids:
-            self.add_item(SignUpButton(event_id))
+        # ВСЕГДА показываем "Записаться"
+        self.add_item(SignUpButton(event_id))
 
+        # ВСЕГДА показываем "Отписаться"
         self.add_item(LeaveButton(event_id))
 
         # --- Админские кнопки ---
@@ -153,7 +153,6 @@ class EventView(discord.ui.View):
                 self.add_item(ForceCloseButton(event_id))
             else:
                 self.add_item(OpenButton(event_id))
-
 
 # ---------- КНОПКИ ----------
 class SignUpButton(discord.ui.Button):
@@ -421,9 +420,11 @@ async def auto_close_events():
         for event_id, data in list(events.items()):
             close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
 
+            # Уже закрыто вручную — пропускаем
             if data.get("force_closed", False):
                 continue
 
+            # Время пришло — закрываем
             if now >= close_dt:
                 data["force_closed"] = True
                 save_events(events)
@@ -436,23 +437,26 @@ async def auto_close_events():
 
                         creator_id = data.get("creator", MAIN_ADMIN)
 
+                        # Обновляем сообщение
                         await msg.edit(embed=embed, view=EventView(event_id, creator_id))
 
+                        # Спамим как раньше
                         await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
 
+                        # Закрываем голосовой канал
                         await lock_voice_channel(channel.guild, data, channel)
 
+                        # Таймер на 15 минут
                         async def timer():
                             await asyncio.sleep(15 * 60)
                             await unlock_voice_channel(channel.guild, data, channel)
 
                         asyncio.create_task(timer())
 
-                    except:
-                        pass
+                    except Exception as e:
+                        print("Ошибка авто-закрытия:", e)
 
         await asyncio.sleep(30)
-
 
 # ---------- КОМАНДЫ ----------
 @bot.tree.command(name="spam", description="Спамит выбранному пользователю в ЛС")
