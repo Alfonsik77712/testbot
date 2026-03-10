@@ -482,4 +482,41 @@ async def addadmin(interaction: discord.Interaction, user: discord.User):
     await interaction.response.send_message(f"{user.mention} теперь админ!", ephemeral=True)
 
 
+@bot.tree.command(name="flood", description="Флудит сообщениями по порядку")
+@app_commands.describe(text="Текст сообщения", amount="Количество сообщений")
+async def flood(interaction: discord.Interaction, text: str, amount: int):
+    if interaction.user.id not in event_admins:
+        return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+    if amount > 50:
+        return await interaction.response.send_message("Максимум 50 сообщений.", ephemeral=True)
+
+    await interaction.response.send_message(f"Флуд начинаю ({amount} сообщений)...", ephemeral=True)
+
+    for i in range(1, amount + 1):
+        await interaction.channel.send(f"{i}. {text}")
+        await asyncio.sleep(0.2)
+
+
+@bot.tree.command(name="spam", description="Спамит тебе в ЛС")
+@app_commands.describe(text="Текст для спама", amount="Количество сообщений")
+async def spam(interaction: discord.Interaction, text: str, amount: int):
+    if interaction.user.id not in event_admins:
+        return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+    if amount > 20:
+        return await interaction.response.send_message("Максимум 20 сообщений.", ephemeral=True)
+
+    await interaction.response.send_message("Спамлю тебе в ЛС...", ephemeral=True)
+
+    try:
+        dm = await interaction.user.create_dm()
+    except:
+        return await interaction.followup.send("Не могу открыть ЛС.", ephemeral=True)
+
+    for _ in range(amount):
+        await dm.send(text)
+        await asyncio.sleep(0.3)
+
+
 bot.run(TOKEN)
