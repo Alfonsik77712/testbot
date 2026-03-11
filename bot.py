@@ -4,7 +4,11 @@ from discord.ext import commands
 import json
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+MSK = timezone(timedelta(hours=3))
+
+
 
 # ---------- ИНИЦИАЛИЗАЦИЯ БОТА (ОБЯЗАТЕЛЬНО ВВЕРХУ!) ----------
 intents = discord.Intents.all()
@@ -38,7 +42,7 @@ events = load_events()
 # ---------- EMBED ----------
 def build_event_embed(event_id, data):
     now = datetime.now()
-    close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
+    close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
 
     is_closed = (
         data.get("force_closed", False)
@@ -91,7 +95,7 @@ class EventView(discord.ui.View):
         data = events[event_id]
 
         now = datetime.now()
-        close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
+        close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
         is_closed = (
             data.get("force_closed", False)
             or now >= close_dt
@@ -129,7 +133,7 @@ class SignUpButton(discord.ui.Button):
         data = events[self.event_id]
 
         now = datetime.now()
-        close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
+        close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
 
         if (
             data.get("force_closed", False)
@@ -144,7 +148,7 @@ class SignUpButton(discord.ui.Button):
 
         data["participants"].append({
             "id": interaction.user.id,
-            "time": datetime.now().strftime("%H:%M:%S")
+            "time": datetime.now(MSK).strftime("%H:%M:%S")
         })
 
         save_events(events)
@@ -367,12 +371,12 @@ async def auto_close_events():
     await bot.wait_until_ready()
 
     while not bot.is_closed():
-        now = datetime.now()
+        now = datetime.now(MSK)
 
         for event_id, data in list(events.items()):
-            close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
+            close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
 
-            # Если время пришло — СПАМИМ ВСЕГДА
+            # Если время пришло — ВСЕГДА спамим, даже если закрыто раньше
             if now >= close_dt:
 
                 channel = bot.get_channel(data["message_channel"])
@@ -380,7 +384,7 @@ async def auto_close_events():
                     try:
                         msg = await channel.fetch_message(data["message_id"])
 
-                        # Обновляем статус (если не закрыто — закрываем)
+                        # Если не закрыто — закрываем
                         if not data.get("force_closed", False):
                             data["force_closed"] = True
                             save_events(events)
