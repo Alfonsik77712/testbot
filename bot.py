@@ -35,41 +35,6 @@ def save_events(events):
 events = load_events()
 
 
-# ---------- БЛОКИРОВКА ГОЛОСОВОГО КАНАЛА ----------
-async def lock_voice_channel(guild, event_data, channel):
-    voice = guild.get_channel(VOICE_CHANNEL_ID)
-    if not voice:
-        return
-
-    await voice.set_permissions(guild.default_role, connect=False)
-
-    for entry in event_data["participants"]:
-        member = guild.get_member(entry["id"])
-        if member:
-            await voice.set_permissions(member, connect=True)
-
-    await channel.send(
-        f"🔒 Голосовой канал <#{VOICE_CHANNEL_ID}> закрыт для неучастников на **15 минут**."
-    )
-
-
-async def unlock_voice_channel(guild, event_data, channel):
-    voice = guild.get_channel(VOICE_CHANNEL_ID)
-    if not voice:
-        return
-
-    await voice.set_permissions(guild.default_role, connect=True)
-
-    for entry in event_data["participants"]:
-        member = guild.get_member(entry["id"])
-        if member:
-            await voice.set_permissions(member, overwrite=None)
-
-    await channel.send(
-        f"🔓 Ограничение снято. Голосовой канал <#{VOICE_CHANNEL_ID}> снова доступен всем."
-    )
-
-
 # ---------- EMBED ----------
 def build_event_embed(event_id, data):
     now = datetime.now()
@@ -304,12 +269,11 @@ class ForceCloseButton(discord.ui.Button):
 
         channel = interaction.channel
 
-        # Спамим 20 раз
+        # СПАМ 20 РАЗ
         for _ in range(20):
             await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
 
         await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
-
 
 class OpenButton(discord.ui.Button):
     def __init__(self, event_id):
@@ -323,13 +287,11 @@ class OpenButton(discord.ui.Button):
         events[self.event_id]["force_closed"] = False
         save_events(events)
 
-        channel = interaction.channel
-        await unlock_voice_channel(interaction.guild, events[self.event_id], channel)
-
         embed = build_event_embed(self.event_id, events[self.event_id])
         await interaction.message.edit(embed=embed, view=EventView(self.event_id, interaction.user.id))
 
         await interaction.response.send_message("Мероприятие открыто!", ephemeral=True)
+
 
 
 # ---------- MODAL ----------
@@ -416,11 +378,9 @@ async def auto_close_events():
         for event_id, data in list(events.items()):
             close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
 
-            # Уже закрыто вручную — пропускаем
             if data.get("force_closed", False):
                 continue
 
-            # Время пришло — закрываем
             if now >= close_dt:
                 data["force_closed"] = True
                 save_events(events)
@@ -433,10 +393,9 @@ async def auto_close_events():
 
                         creator_id = data.get("creator", MAIN_ADMIN)
 
-                        # Обновляем сообщение
                         await msg.edit(embed=embed, view=EventView(event_id, creator_id))
 
-                        # Спамим 20 раз
+                        # СПАМ 20 РАЗ
                         for _ in range(20):
                             await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
 
