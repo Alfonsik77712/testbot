@@ -337,6 +337,18 @@ class CreateEventModal(discord.ui.Modal, title="Создать мероприя�
     async def on_submit(self, interaction):
         event_id = str(int(datetime.now().timestamp()))
 
+        # ВАЖНО: проверяем формат даты
+        try:
+            close_dt = datetime.strptime(
+                f"{self.date_input.value} {self.time_input.value}",
+                "%Y-%m-%d %H:%M"
+            ).replace(tzinfo=MSK)
+        except:
+            return await interaction.response.send_message(
+                "❌ Неверный формат даты или времени. Используй YYYY-MM-DD и HH:MM.",
+                ephemeral=True
+            )
+
         events[event_id] = {
             "title": self.title_input.value,
             "date": self.date_input.value,
@@ -364,7 +376,6 @@ class CreateEventModal(discord.ui.Modal, title="Создать мероприя�
         events[event_id]["message_channel"] = interaction.channel.id
         events[event_id]["message_id"] = sent_message.id
         save_events(events)
-
 
 # ---------- АВТО-ЗАКРЫТИЕ ----------
 async def auto_close_events():
