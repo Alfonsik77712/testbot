@@ -267,13 +267,7 @@ class ForceCloseButton(discord.ui.Button):
         embed = build_event_embed(self.event_id, events[self.event_id])
         await interaction.message.edit(embed=embed, view=EventView(self.event_id, interaction.user.id))
 
-        channel = interaction.channel
-
-        # СПАМ 20 РАЗ
-        for _ in range(20):
-            await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
-
-        await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
+        await interaction.response.send_message("Мероприятие закрыто вручную. Спам будет в указанное время.", ephemeral=True)
 
 class OpenButton(discord.ui.Button):
     def __init__(self, event_id):
@@ -378,24 +372,25 @@ async def auto_close_events():
         for event_id, data in list(events.items()):
             close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M")
 
-            if data.get("force_closed", False):
-                continue
-
+            # Если время пришло — СПАМИМ ВСЕГДА
             if now >= close_dt:
-                data["force_closed"] = True
-                save_events(events)
 
                 channel = bot.get_channel(data["message_channel"])
                 if channel:
                     try:
                         msg = await channel.fetch_message(data["message_id"])
-                        embed = build_event_embed(event_id, data)
 
+                        # Обновляем статус (если не закрыто — закрываем)
+                        if not data.get("force_closed", False):
+                            data["force_closed"] = True
+                            save_events(events)
+
+                        embed = build_event_embed(event_id, data)
                         creator_id = data.get("creator", MAIN_ADMIN)
 
                         await msg.edit(embed=embed, view=EventView(event_id, creator_id))
 
-                        # СПАМ 20 РАЗ
+                        # СПАМ 20 РАЗ ВСЕГДА
                         for _ in range(20):
                             await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
 
