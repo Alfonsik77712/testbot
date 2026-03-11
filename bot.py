@@ -304,13 +304,9 @@ class ForceCloseButton(discord.ui.Button):
 
         channel = interaction.channel
 
-        await lock_voice_channel(interaction.guild, events[self.event_id], channel)
-
-        async def timer():
-            await asyncio.sleep(15 * 60)
-            await unlock_voice_channel(interaction.guild, events[self.event_id], channel)
-
-        asyncio.create_task(timer())
+        # Спамим 20 раз
+        for _ in range(20):
+            await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
 
         await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
 
@@ -440,18 +436,9 @@ async def auto_close_events():
                         # Обновляем сообщение
                         await msg.edit(embed=embed, view=EventView(event_id, creator_id))
 
-                        # Спамим как раньше
-                        await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
-
-                        # Закрываем голосовой канал
-                        await lock_voice_channel(channel.guild, data, channel)
-
-                        # Таймер на 15 минут
-                        async def timer():
-                            await asyncio.sleep(15 * 60)
-                            await unlock_voice_channel(channel.guild, data, channel)
-
-                        asyncio.create_task(timer())
+                        # Спамим 20 раз
+                        for _ in range(20):
+                            await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
 
                     except Exception as e:
                         print("Ошибка авто-закрытия:", e)
