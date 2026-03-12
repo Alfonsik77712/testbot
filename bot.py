@@ -1,16 +1,15 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import asyncio
-from datetime import datetime, timedelta, timezone
 
+# ---------- МСК ----------
 MSK = timezone(timedelta(hours=3))
 
-
-
-# ---------- ИНИЦИАЛИЗАЦИЯ БОТА (ОБЯЗАТЕЛЬНО ВВЕРХУ!) ----------
+# ---------- ИНИЦИАЛИЗАЦИЯ БОТА ----------
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -20,7 +19,6 @@ MAIN_ADMIN = 1072968512076787744
 event_admins = {MAIN_ADMIN}
 
 EVENTS_FILE = "events.json"
-VOICE_CHANNEL_ID = 1377624144807727105
 
 
 # ---------- ЗАГРУЗКА / СОХРАНЕНИЕ ----------
@@ -41,7 +39,7 @@ events = load_events()
 
 # ---------- EMBED ----------
 def build_event_embed(event_id, data):
-    now = datetime.now()
+    now = datetime.now(MSK)
     close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
 
     is_closed = (
@@ -94,7 +92,7 @@ class EventView(discord.ui.View):
 
         data = events[event_id]
 
-        now = datetime.now()
+        now = datetime.now(MSK)
         close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
         is_closed = (
             data.get("force_closed", False)
@@ -104,14 +102,10 @@ class EventView(discord.ui.View):
 
         is_admin = viewer_id in event_admins
 
-        # --- Кнопки участников ---
-        # ВСЕГДА показываем "Записаться"
+        # ВСЕГДА показываем кнопки
         self.add_item(SignUpButton(event_id))
-
-        # ВСЕГДА показываем "Отписаться"
         self.add_item(LeaveButton(event_id))
 
-        # --- Админские кнопки ---
         if is_admin:
             self.add_item(EditButton(event_id))
             self.add_item(DeleteButton(event_id))
@@ -123,6 +117,7 @@ class EventView(discord.ui.View):
             else:
                 self.add_item(OpenButton(event_id))
 
+
 # ---------- КНОПКИ ----------
 class SignUpButton(discord.ui.Button):
     def __init__(self, event_id):
@@ -132,7 +127,7 @@ class SignUpButton(discord.ui.Button):
     async def callback(self, interaction):
         data = events[self.event_id]
 
-        now = datetime.now()
+        now = datetime.now(MSK)
         close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
 
         if (
@@ -271,7 +266,13 @@ class ForceCloseButton(discord.ui.Button):
         embed = build_event_embed(self.event_id, events[self.event_id])
         await interaction.message.edit(embed=embed, view=EventView(self.event_id, interaction.user.id))
 
-        await interaction.response.send_message("Мероприятие закрыто вручную. Спам будет в указанное время.", ephemeral=True)
+        channel = interaction.channel
+
+        for _ in range(20):
+            await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
+
+        await interaction.response.send_message("Мероприятие закрыто.", ephemeral=True)
+
 
 class OpenButton(discord.ui.Button):
     def __init__(self, event_id):
@@ -289,7 +290,6 @@ class OpenButton(discord.ui.Button):
         await interaction.message.edit(embed=embed, view=EventView(self.event_id, interaction.user.id))
 
         await interaction.response.send_message("Мероприятие открыто!", ephemeral=True)
-
 
 
 # ---------- MODAL ----------
@@ -313,6 +313,14 @@ class EditEventModal(discord.ui.Modal, title="Изменить мероприя�
     async def on_submit(self, interaction):
         data = events[self.event_id]
 
+        try:
+            datetime.strptime(
+                f"{self.date_input.value} {self.time_input.value}",
+                "%Y-%m-%d %H:%M"
+            )
+        except:
+            return await interaction.response.send_message("Неверный формат даты/времени.", ephemeral=True)
+
         data["title"] = self.title_input.value
         data["date"] = self.date_input.value
         data["time"] = self.time_input.value
@@ -335,19 +343,15 @@ class CreateEventModal(discord.ui.Modal, title="Создать мероприя�
     limit_input = discord.ui.TextInput(label="Лимит")
 
     async def on_submit(self, interaction):
-        event_id = str(int(datetime.now().timestamp()))
+        event_id = str(int(datetime.now(MSK).timestamp()))
 
-        # ВАЖНО: проверяем формат даты
         try:
-            close_dt = datetime.strptime(
+            datetime.strptime(
                 f"{self.date_input.value} {self.time_input.value}",
                 "%Y-%m-%d %H:%M"
-            ).replace(tzinfo=MSK)
-        except:
-            return await interaction.response.send_message(
-                "❌ Неверный формат даты или времени. Используй YYYY-MM-DD и HH:MM.",
-                ephemeral=True
             )
+        except:
+            return await interaction.response.send_message("Неверный формат даты/времени.", ephemeral=True)
 
         events[event_id] = {
             "title": self.title_input.value,
@@ -377,6 +381,7 @@ class CreateEventModal(discord.ui.Modal, title="Создать мероприя�
         events[event_id]["message_id"] = sent_message.id
         save_events(events)
 
+
 # ---------- АВТО-ЗАКРЫТИЕ ----------
 async def auto_close_events():
     await bot.wait_until_ready()
@@ -385,9 +390,10 @@ async def auto_close_events():
         now = datetime.now(MSK)
 
         for event_id, data in list(events.items()):
-            close_dt = datetime.strptime(data["close_datetime"], "%Y-%m-%d %H:%M").replace(tzinfo=MSK)
+            close_dt = datetime.strptime(
+                data["close_datetime"], "%Y-%m-%d %H:%M"
+            ).replace(tzinfo=MSK)
 
-            # Если время пришло — ВСЕГДА спамим, даже если закрыто раньше
             if now >= close_dt:
 
                 channel = bot.get_channel(data["message_channel"])
@@ -395,7 +401,6 @@ async def auto_close_events():
                     try:
                         msg = await channel.fetch_message(data["message_id"])
 
-                        # Если не закрыто — закрываем
                         if not data.get("force_closed", False):
                             data["force_closed"] = True
                             save_events(events)
@@ -405,7 +410,6 @@ async def auto_close_events():
 
                         await msg.edit(embed=embed, view=EventView(event_id, creator_id))
 
-                        # СПАМ 20 РАЗ ВСЕГДА
                         for _ in range(20):
                             await channel.send("@everyone КД ЗАХОДИМ ВСЕ")
 
@@ -414,9 +418,40 @@ async def auto_close_events():
 
         await asyncio.sleep(30)
 
+
 # ---------- КОМАНДЫ ----------
+@bot.tree.command(name="event_create", description="Создать мероприятие")
+async def event_create(interaction: discord.Interaction):
+    if interaction.user.id not in event_admins:
+        return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+    await interaction.response.send_modal(CreateEventModal())
+
+
+@bot.tree.command(name="addadmin", description="Добавить админа")
+async def addadmin(interaction: discord.Interaction, user: discord.User):
+    if interaction.user.id != MAIN_ADMIN:
+        return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+    event_admins.add(user.id)
+    await interaction.response.send_message(f"{user.mention} теперь админ!", ephemeral=True)
+
+
+@bot.tree.command(name="removeadmin", description="Убрать админа")
+async def removeadmin(interaction: discord.Interaction, user: discord.User):
+    if interaction.user.id != MAIN_ADMIN:
+        return await interaction.response.send_message("Нет прав.", ephemeral=True)
+
+    if user.id in event_admins:
+        event_admins.remove(user.id)
+        await interaction.response.send_message(f"{user.mention} больше не админ.", ephemeral=True)
+    else:
+        await interaction.response.send_message("Этот пользователь не админ.", ephemeral=True)
+
+# ---------- СПАМ / FLOOD ----------
+
 @bot.tree.command(name="spam", description="Спамит выбранному пользователю в ЛС")
-@app_commands.describe(user="Кому спамить", text="Текст", amount="Количество сообщений")
+@app_commands.describe(user="Кому спамить", text="Текст сообщения", amount="Количество сообщений")
 async def spam(interaction: discord.Interaction, user: discord.User, text: str, amount: int):
     if interaction.user.id not in event_admins:
         return await interaction.response.send_message("Нет прав.", ephemeral=True)
@@ -438,7 +473,7 @@ async def spam(interaction: discord.Interaction, user: discord.User, text: str, 
         await dm.send(text)
 
 
-@bot.tree.command(name="flood", description="Флудит сообщениями по порядку")
+@bot.tree.command(name="flood", description="Флудит сообщениями в канал")
 @app_commands.describe(text="Текст сообщения", amount="Количество сообщений")
 async def flood(interaction: discord.Interaction, text: str, amount: int):
     if interaction.user.id not in event_admins:
@@ -447,42 +482,13 @@ async def flood(interaction: discord.Interaction, text: str, amount: int):
     if amount > 300:
         return await interaction.response.send_message("Максимум 300 сообщений.", ephemeral=True)
 
-    await interaction.response.send_message(f"Флуд начинаю ({amount} сообщений)...", ephemeral=True)
+    await interaction.response.send_message(
+        f"Флуд начинаю ({amount} сообщений)...",
+        ephemeral=True
+    )
 
     for i in range(1, amount + 1):
         await interaction.channel.send(f"{i}. {text}")
-
-
-@bot.tree.command(name="event_create", description="Создать мероприятие")
-async def event_create(interaction: discord.Interaction):
-    if interaction.user.id not in event_admins:
-        return await interaction.response.send_message("Нет прав.", ephemeral=True)
-
-    await interaction.response.send_modal(CreateEventModal())
-
-
-@bot.tree.command(name="addadmin", description="Добавить админа для мероприятий")
-@app_commands.describe(user="Пользователь, которого добавить")
-async def addadmin(interaction: discord.Interaction, user: discord.User):
-    if interaction.user.id != MAIN_ADMIN:
-        return await interaction.response.send_message("Нет прав.", ephemeral=True)
-
-    event_admins.add(user.id)
-    await interaction.response.send_message(f"{user.mention} теперь админ мероприятий!", ephemeral=True)
-
-
-@bot.tree.command(name="removeadmin", description="Убрать админа мероприятий")
-@app_commands.describe(user="Пользователь, которого убрать")
-async def removeadmin(interaction: discord.Interaction, user: discord.User):
-    if interaction.user.id != MAIN_ADMIN:
-        return await interaction.response.send_message("Нет прав.", ephemeral=True)
-
-    if user.id in event_admins:
-        event_admins.remove(user.id)
-        await interaction.response.send_message(f"{user.mention} больше не админ мероприятий.", ephemeral=True)
-    else:
-        await interaction.response.send_message("Этот пользователь не админ.", ephemeral=True)
-
 
 # ---------- ON_READY ----------
 @bot.event
